@@ -19,6 +19,10 @@ const config: Config = {
         error: '#D32F2F',
         warning: '#FF9800',
         info: '#2196F3',
+        custom: {
+          gray: '#DEDEDE', // RGB(222,222,222)
+          green: '#005A5A', // RGB(0,90,90)
+        },
       },
     },
   },

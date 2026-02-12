@@ -41,7 +41,7 @@ export default function LoginPage() {
   // Mostrar loading enquanto verifica autenticação
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'rgb(222, 222, 222)' }}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-gray-600">Carregando...</p>
@@ -51,7 +51,7 @@ export default function LoginPage() {
   }
 
   return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'rgb(222, 222, 222)' }}>
       <div className="max-w-md w-full space-y-8 p-8">
         <div className="bg-white rounded-lg shadow-md p-8">
           <div className="text-center mb-6">

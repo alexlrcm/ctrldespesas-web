@@ -32,7 +32,7 @@ export default function DashboardPage() {
   if (!roleLoading && !isFinanceiro && role !== UserRole.FINANCEIRO && role !== null) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen bg-gray-100 p-8">
+        <div className="min-h-screen p-8" style={{ backgroundColor: 'rgb(222, 222, 222)' }}>
           <div className="max-w-7xl mx-auto">
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
               <h2 className="text-xl font-semibold text-yellow-800 mb-2">
@@ -164,7 +164,7 @@ export default function DashboardPage() {
   if (roleLoading || dataLoading) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'rgb(222, 222, 222)' }}>
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
             <p className="mt-4 text-gray-600">Carregando...</p>
@@ -176,9 +176,9 @@ export default function DashboardPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-100">
+      <div className="min-h-screen" style={{ backgroundColor: 'rgb(222, 222, 222)' }}>
         {/* Header */}
-        <div className="bg-white shadow-sm border-b">
+        <div className="bg-white shadow-sm border-b sticky top-0 z-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-4">
@@ -187,7 +187,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">
-                    Controle de Despesas - Financeiro
+                    Controle de Despesas
                   </h1>
                   <p className="text-sm text-gray-600 mt-1">
                     {user?.email} ({role})
@@ -214,7 +214,7 @@ export default function DashboardPage() {
 
           {/* Cards de Resumo */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="bg-white rounded-lg shadow-md p-6 hover:bg-gray-200 transition-colors cursor-default">
               <h3 className="text-sm font-medium text-gray-500 mb-2">
                 Relatórios em Análise
               </h3>
@@ -231,7 +231,7 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="bg-white rounded-lg shadow-md p-6 hover:bg-gray-200 transition-colors cursor-default">
               <h3 className="text-sm font-medium text-gray-500 mb-2">
                 Aprovados para Pagamento
               </h3>
@@ -248,7 +248,7 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="bg-white rounded-lg shadow-md p-6 hover:bg-gray-200 transition-colors cursor-default">
               <h3 className="text-sm font-medium text-gray-500 mb-2">
                 Adiantamentos Pendentes
               </h3>
@@ -268,8 +268,8 @@ export default function DashboardPage() {
 
           {/* Relatórios em Análise */}
           <div className="bg-white rounded-lg shadow-md mb-8 overflow-hidden">
-            <div className="px-6 py-4 bg-gray-100 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">
+            <div className="px-6 py-4 border-b border-gray-200" style={{ backgroundColor: 'rgb(0, 90, 90)' }}>
+              <h2 className="text-xl font-semibold text-white">
                 Relatórios em Análise Contábil
               </h2>
             </div>
@@ -284,7 +284,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={report.id}
-                      className="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors border-b last:border-b-0"
+                      className="px-6 py-4 hover:bg-gray-200 cursor-pointer transition-colors border-b last:border-b-0"
                       onClick={() => router.push(`/reports/${report.id}`)}
                     >
                       <div className="flex justify-between items-start mb-3">
@@ -333,8 +333,8 @@ export default function DashboardPage() {
 
           {/* Relatórios Aprovados para Pagamento */}
           <div className="bg-white rounded-lg shadow-md mb-8 overflow-hidden">
-            <div className="px-6 py-4 bg-gray-100 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">
+            <div className="px-6 py-4 border-b border-gray-200" style={{ backgroundColor: 'rgb(0, 90, 90)' }}>
+              <h2 className="text-xl font-semibold text-white">
                 Relatórios Aprovados para Pagamento
               </h2>
             </div>
@@ -349,7 +349,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={report.id}
-                      className="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors border-b last:border-b-0"
+                      className="px-6 py-4 hover:bg-gray-200 cursor-pointer transition-colors border-b last:border-b-0"
                       onClick={() => router.push(`/reports/${report.id}`)}
                     >
                       <div className="flex justify-between items-start mb-3">
@@ -398,8 +398,8 @@ export default function DashboardPage() {
 
           {/* Adiantamentos Pendentes */}
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="px-6 py-4 bg-gray-100 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">
+            <div className="px-6 py-4 border-b border-gray-200" style={{ backgroundColor: 'rgb(0, 90, 90)' }}>
+              <h2 className="text-xl font-semibold text-white">
                 Adiantamentos Pendentes de Pagamento
               </h2>
             </div>
