@@ -298,19 +298,11 @@ NEXT_PUBLIC_FILE_RETENTION_DAYS=90
 
 ---
 
-## 💡 Recomendações
+## 💡 Recomendação
 
-### Para Aplicações Estáticas (Export):
-**Use Firebase Hosting:**
-- ✅ Gratuito e integrado com seu projeto Firebase
-- ✅ CDN global
-- ✅ SSL automático
-- ✅ Mesmo projeto Firebase que você já usa
-
-### Para Aplicações com SSR (Server-Side Rendering):
-**Use Vercel:**
+**Para começar rapidamente, use a Vercel:**
 - ✅ Deploy gratuito
 - ✅ Integração direta com GitHub
 - ✅ Deploy automático a cada push
 - ✅ SSL gratuito
-- ✅ Otimizado para Next.js com SSR
+- ✅ Otimizado para Next.js
