@@ -141,7 +141,7 @@ export default function AdvanceDetailPage() {
   if (loading) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
             <p className="mt-4 text-gray-600">Carregando adiantamento...</p>
@@ -154,7 +154,7 @@ export default function AdvanceDetailPage() {
   if (!advance) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
             <p className="text-gray-600">Adiantamento não encontrado</p>
             <button
@@ -173,7 +173,7 @@ export default function AdvanceDetailPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-100">
         {/* Header */}
         <div className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

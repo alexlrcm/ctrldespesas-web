@@ -32,7 +32,7 @@ export default function DashboardPage() {
   if (!roleLoading && !isFinanceiro && role !== UserRole.FINANCEIRO && role !== null) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen bg-gray-50 p-8">
+        <div className="min-h-screen bg-gray-100 p-8">
           <div className="max-w-7xl mx-auto">
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
               <h2 className="text-xl font-semibold text-yellow-800 mb-2">
@@ -164,7 +164,7 @@ export default function DashboardPage() {
   if (roleLoading || dataLoading) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
             <p className="mt-4 text-gray-600">Carregando...</p>
@@ -176,7 +176,7 @@ export default function DashboardPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-100">
         {/* Header */}
         <div className="bg-white shadow-sm border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">

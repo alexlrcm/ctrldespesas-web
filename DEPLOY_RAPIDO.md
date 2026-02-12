@@ -39,22 +39,48 @@ git push -u origin main
 4. **Importe o repositório** `ctrldespesas-web`
 5. **Configure as variáveis de ambiente:**
 
+   ⚠️ **ESSENCIAL:** Essas variáveis são NECESSÁRIAS! Sem elas, o Firebase não funcionará.
+   
    Clique em **"Environment Variables"** e adicione uma por uma:
+   
+   **Para cada variável:**
+   - Clique em **"+ Add More"**
+   - No campo **"Key"**, digite o nome (ex: `NEXT_PUBLIC_FIREBASE_API_KEY`)
+   - No campo **"Value"**, digite o valor correspondente
+   - Clique em **"Add"** ou **"Save"**
 
+   **Adicione estas 8 variáveis:**
+   
    ```
-   NEXT_PUBLIC_FIREBASE_API_KEY = AIzaSyAATPDjSZAPYFuuX5yWxbDRX0aHb3DE-g0
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN = controle-de-despesas-78687.firebaseapp.com
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID = controle-de-despesas-78687
-   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = controle-de-despesas-78687.firebasestorage.app
-   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID = 972931672046
-   NEXT_PUBLIC_FIREBASE_APP_ID = 1:972931672046:web:0d02d9c8e72caca6e0d0ff
-   NEXT_PUBLIC_DOMAIN = giratech.com.br
-   NEXT_PUBLIC_FILE_RETENTION_DAYS = 90
+   Key: NEXT_PUBLIC_FIREBASE_API_KEY
+   Value: AIzaSyAATPDjSZAPYFuuX5yWxbDRX0aHb3DE-g0
+   
+   Key: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+   Value: controle-de-despesas-78687.firebaseapp.com
+   
+   Key: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+   Value: controle-de-despesas-78687
+   
+   Key: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+   Value: controle-de-despesas-78687.firebasestorage.app
+   
+   Key: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+   Value: 972931672046
+   
+   Key: NEXT_PUBLIC_FIREBASE_APP_ID
+   Value: 1:972931672046:web:0d02d9c8e72caca6e0d0ff
+   
+   Key: NEXT_PUBLIC_DOMAIN
+   Value: giratech.com.br
+   
+   Key: NEXT_PUBLIC_FILE_RETENTION_DAYS
+   Value: 90
    ```
 
    **⚠️ IMPORTANTE:** 
-   - Não adicione `NEXT_PUBLIC_APP_URL` ainda (será preenchido automaticamente)
-   - Após o primeiro deploy, volte e atualize `NEXT_PUBLIC_APP_URL` com a URL fornecida pela Vercel
+   - **NÃO** adicione `NEXT_PUBLIC_APP_URL` ainda (será feito depois)
+   - Essas são as mesmas variáveis do seu arquivo `.env.local`
+   - Veja o guia completo em: `VARIAVEIS_AMBIENTE_VERCEL.md`
 
 6. **Clique em "Deploy"**
 
