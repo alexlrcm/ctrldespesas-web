@@ -76,16 +76,36 @@ export function useFinanceiro() {
     reportId: string
   ): Promise<ExpenseReport | null> => {
     try {
+      console.log('🔄 loadReportDetails: Carregando relatório ID:', reportId)
+      
       const report = await getReportById(reportId)
-      if (!report) return null
+      if (!report) {
+        console.warn('⚠️ Relatório não encontrado:', reportId)
+        return null
+      }
 
-      const expenses = await getExpensesByReportId(reportId)
+      console.log('📋 Relatório encontrado:', {
+        id: report.id,
+        name: report.name,
+        expensesNoDocumento: report.expenses?.length || 0,
+        tipoExpenses: Array.isArray(report.expenses) ? 'array' : typeof report.expenses,
+      })
+
+      // Buscar sempre da coleção para garantir dados atualizados e completos
+      console.log('🔍 Buscando despesas da coleção (forçando atualização)...')
+      const expensesFromCollection = await getExpensesByReportId(reportId)
+      
+      console.log('💰 Despesas da coleção:', {
+        quantidade: expensesFromCollection.length,
+        ids: expensesFromCollection.map(e => e.id),
+      })
+
       return {
         ...report,
-        expenses,
+        expenses: expensesFromCollection,
       }
     } catch (err: any) {
-      console.error('Erro ao carregar detalhes do relatório:', err)
+      console.error('❌ Erro ao carregar detalhes do relatório:', err)
       throw err
     }
   }, [])

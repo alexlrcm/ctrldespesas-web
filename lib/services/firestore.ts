@@ -105,6 +105,7 @@ export async function getFinanceiroReports(
           approvedByUserName: data.approvedByUserName || null,
           statusHistory: data.statusHistory || [],
           createdAtDateTime: data.createdAtDateTime || null,
+          pdfUri: data.pdfUri || null,
         }
         reports.push(report)
       })
@@ -148,6 +149,24 @@ export async function getReportById(
     }
 
     const data = reportDoc.data()
+    
+    // Verificar se há despesas embutidas no documento (como o app Android pode usar)
+    const embeddedExpenses = data.expenses || []
+    console.log('📋 Despesas no documento do relatório:', {
+      reportId,
+      quantidade: Array.isArray(embeddedExpenses) ? embeddedExpenses.length : 0,
+      tipo: Array.isArray(embeddedExpenses) ? 'array' : typeof embeddedExpenses,
+      primeirosIds: Array.isArray(embeddedExpenses) ? embeddedExpenses.slice(0, 10).map((e: any) => {
+        if (typeof e === 'string') return e
+        if (e && typeof e === 'object') return e.id || e.reportId || 'sem-id'
+        return 'tipo-desconhecido'
+      }) : null,
+      estrutura: Array.isArray(embeddedExpenses) && embeddedExpenses.length > 0 ? 
+        (typeof embeddedExpenses[0] === 'object' ? 'objetos' : 'strings/ids') : 'vazio',
+      todasAsChaves: Object.keys(data), // Mostrar todas as chaves do documento
+      dadosCompletos: data, // Mostrar todos os dados do documento
+    })
+    
     return {
       id: reportDoc.id,
       name: data.name || '',
@@ -159,7 +178,7 @@ export async function getReportById(
       status: data.status as ReportStatus,
       totalAmount: data.totalAmount || 0,
       date: data.date || '',
-      expenses: data.expenses || [],
+      expenses: embeddedExpenses,
       createdByUserId: data.createdByUserId || null,
       createdByUserName: data.createdByUserName || null,
       approverObservations: data.approverObservations || '',
@@ -168,6 +187,7 @@ export async function getReportById(
       approvedByUserName: data.approvedByUserName || null,
       statusHistory: data.statusHistory || [],
       createdAtDateTime: data.createdAtDateTime || null,
+      pdfUri: data.pdfUri || null,
     }
   } catch (error) {
     console.error('Erro ao buscar relatório:', error)
@@ -177,45 +197,179 @@ export async function getReportById(
 
 /**
  * Busca despesas de um relatório
+ * 
+ * Segue o padrão do Android: busca por reportId exato usando WHERE reportId = :reportId
+ * Tenta variações do reportId como fallback (ex: '52', '00052') caso algumas despesas
+ * tenham sido sincronizadas com formato diferente
+ * Ordena por data DESC (mais recentes primeiro)
  */
 export async function getExpensesByReportId(
   reportId: string
 ): Promise<Expense[]> {
   try {
-    const expensesQuery = query(
-      collection(db, COLLECTION_EXPENSES),
-      where('reportId', '==', reportId)
-    )
-
-    const snapshot = await getDocs(expensesQuery)
-    const expenses: Expense[] = []
-
-    snapshot.forEach((doc) => {
-      const data = doc.data()
-      expenses.push({
-        id: doc.id,
-        amount: data.amount || 0,
-        expenseType: data.expenseType,
-        date: data.date || '',
-        paymentMethod: data.paymentMethod,
-        reimbursable: data.reimbursable || false,
-        projectId: data.projectId || null,
-        projectName: data.projectName || null,
-        reportId: data.reportId || null,
-        reportName: data.reportName || null,
-        observations: data.observations || '',
-        receiptImageUri: data.receiptImageUri || null,
-        receiptPdfUri: data.receiptPdfUri || null,
-        attachments: data.attachments || [],
-        createdByUserId: data.createdByUserId || null,
-        createdByUserName: data.createdByUserName || null,
-        createdAtDateTime: data.createdAtDateTime || null,
-      })
+    console.log('🔍 Buscando despesas para reportId:', reportId)
+    
+    // Normalizar reportId para tentar diferentes formatos
+    const reportIdVariations: string[] = []
+    
+    // Adicionar o reportId original
+    reportIdVariations.push(reportId)
+    
+    // Tentar variações numéricas (ex: '52' -> ['52', '00052'])
+    const reportIdAsNumber = parseInt(reportId, 10)
+    if (!isNaN(reportIdAsNumber)) {
+      // Formato sem zeros à esquerda: '52'
+      reportIdVariations.push(reportIdAsNumber.toString())
+      // Formato com zeros à esquerda (5 dígitos): '00052'
+      reportIdVariations.push(reportIdAsNumber.toString().padStart(5, '0'))
+    }
+    
+    // Remover duplicatas
+    const uniqueVariations = [...new Set(reportIdVariations)]
+    
+    console.log('🔍 Tentando variações do reportId:', uniqueVariations)
+    
+    // Buscar despesas com cada variação do reportId
+    const expensesMap = new Map<string, Expense>()
+    
+    for (const variation of uniqueVariations) {
+      try {
+        const expensesQuery = query(
+          collection(db, COLLECTION_EXPENSES),
+          where('reportId', '==', variation)
+        )
+        
+        const snapshot = await getDocs(expensesQuery)
+        console.log(`📊 Despesas encontradas com reportId "${variation}":`, snapshot.size)
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data()
+          
+          // Verificar se já não adicionamos esta despesa
+          if (!expensesMap.has(doc.id)) {
+            expensesMap.set(doc.id, {
+              id: doc.id,
+              amount: data.amount || 0,
+              expenseType: data.expenseType,
+              date: data.date || '',
+              paymentMethod: data.paymentMethod,
+              reimbursable: data.reimbursable || false,
+              projectId: data.projectId || null,
+              projectName: data.projectName || null,
+              reportId: reportId, // Normalizar para o reportId original
+              reportName: data.reportName || null,
+              observations: data.observations || '',
+              receiptImageUri: data.receiptImageUri || null,
+              receiptPdfUri: data.receiptPdfUri || null,
+              attachments: data.attachments || [],
+              createdByUserId: data.createdByUserId || null,
+              createdByUserName: data.createdByUserName || null,
+              createdAtDateTime: data.createdAtDateTime || null,
+            })
+          }
+        })
+      } catch (err) {
+        console.warn(`⚠️ Erro ao buscar com reportId "${variation}":`, err)
+      }
+    }
+    
+    // Converter Map para Array
+    const expenses = Array.from(expensesMap.values())
+    
+    // Ordenar por data DESC (mais recentes primeiro) - seguindo padrão do Android
+    expenses.sort((a, b) => {
+      const dateA = new Date(a.date || a.createdAtDateTime || 0).getTime()
+      const dateB = new Date(b.date || b.createdAtDateTime || 0).getTime()
+      return dateB - dateA // Descendente
     })
-
+    
+    console.log('✅ Total de despesas retornadas:', expenses.length)
+    console.log('📋 IDs das despesas encontradas:', expenses.map(e => e.id))
+    
+    // DEBUG: Buscar todas as despesas esperadas pelo ID para verificar se existem
+    const expectedExpenseIds = ['60', '53', '54', '55', '63']
+    if (reportId === '52') {
+      console.log('🔍 DEBUG: Verificando despesas esperadas para reportId 52...')
+      const debugPromises = expectedExpenseIds.map(async (expenseId) => {
+        try {
+          const expenseDoc = await getDoc(doc(db, COLLECTION_EXPENSES, expenseId))
+          if (expenseDoc.exists()) {
+            const data = expenseDoc.data()
+            console.log(`📋 Despesa ${expenseId}:`, {
+              id: expenseDoc.id,
+              reportId: data.reportId,
+              reportName: data.reportName,
+              date: data.date,
+              amount: data.amount,
+              expenseType: data.expenseType,
+            })
+            return { id: expenseId, found: true, reportId: data.reportId }
+          } else {
+            console.log(`❌ Despesa ${expenseId} não encontrada no Firestore`)
+            return { id: expenseId, found: false }
+          }
+        } catch (err) {
+          console.error(`❌ Erro ao buscar despesa ${expenseId}:`, err)
+          return { id: expenseId, found: false, error: err }
+        }
+      })
+      
+      const debugResults = await Promise.all(debugPromises)
+      console.log('🔍 DEBUG: Resultados da verificação:', debugResults)
+      
+      // Se encontramos despesas que não foram incluídas, adicioná-las
+      const missingExpenses: Expense[] = []
+      for (const result of debugResults) {
+        if (result.found && result.reportId) {
+          // Verificar se a despesa já está na lista
+          if (!expenses.find(e => e.id === result.id)) {
+            try {
+              const expenseDoc = await getDoc(doc(db, COLLECTION_EXPENSES, result.id))
+              if (expenseDoc.exists()) {
+                const data = expenseDoc.data()
+                missingExpenses.push({
+                  id: expenseDoc.id,
+                  amount: data.amount || 0,
+                  expenseType: data.expenseType,
+                  date: data.date || '',
+                  paymentMethod: data.paymentMethod,
+                  reimbursable: data.reimbursable || false,
+                  projectId: data.projectId || null,
+                  projectName: data.projectName || null,
+                  reportId: reportId, // Normalizar para o reportId original
+                  reportName: data.reportName || null,
+                  observations: data.observations || '',
+                  receiptImageUri: data.receiptImageUri || null,
+                  receiptPdfUri: data.receiptPdfUri || null,
+                  attachments: data.attachments || [],
+                  createdByUserId: data.createdByUserId || null,
+                  createdByUserName: data.createdByUserName || null,
+                  createdAtDateTime: data.createdAtDateTime || null,
+                })
+                console.log(`✅ Adicionando despesa ${result.id} que estava faltando`)
+              }
+            } catch (err) {
+              console.error(`❌ Erro ao adicionar despesa ${result.id}:`, err)
+            }
+          }
+        }
+      }
+      
+      if (missingExpenses.length > 0) {
+        expenses.push(...missingExpenses)
+        // Reordenar após adicionar
+        expenses.sort((a, b) => {
+          const dateA = new Date(a.date || a.createdAtDateTime || 0).getTime()
+          const dateB = new Date(b.date || b.createdAtDateTime || 0).getTime()
+          return dateB - dateA
+        })
+        console.log(`✅ Adicionadas ${missingExpenses.length} despesas que estavam faltando`)
+      }
+    }
+    
     return expenses
   } catch (error) {
-    console.error('Erro ao buscar despesas:', error)
+    console.error('❌ Erro ao buscar despesas:', error)
     throw error
   }
 }

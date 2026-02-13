@@ -178,6 +178,7 @@ export interface ExpenseReport {
   approvedByUserName?: string | null
   statusHistory: StatusHistory[]
   createdAtDateTime?: string | null
+  pdfUri?: string | null
 }
 
 export interface AdvanceStatusHistory {

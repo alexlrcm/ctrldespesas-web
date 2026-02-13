@@ -7,8 +7,9 @@ import { useAuthContext } from '@/contexts/AuthContext'
 import { useFinanceiro } from '@/hooks/useFinanceiro'
 import { ExpenseReport, ReportStatus, Expense, PaymentMethod, Advance, UserProfile, AccountType, AdvanceReason, AdvanceStatus } from '@/lib/models/types'
 import { doc, getDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase/config'
+import { db, storage } from '@/lib/firebase/config'
 import { getUserProfile } from '@/lib/services/firestore'
+import { ref, getDownloadURL } from 'firebase/storage'
 import { toast } from 'react-toastify'
 
 export const dynamicParams = true
@@ -35,6 +36,9 @@ export default function ReportDetailPage() {
   const [creatorProfile, setCreatorProfile] = useState<UserProfile | null>(null)
   const [loadingAdvance, setLoadingAdvance] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(false)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [loadingPdf, setLoadingPdf] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!reportId) return
@@ -113,6 +117,53 @@ export default function ReportDetailPage() {
       cancelled = true
     }
   }, [reportId, loadReportDetails, router])
+
+  // Carregar URL do PDF quando o relatório tiver pdfUri
+  useEffect(() => {
+    if (!report?.pdfUri) {
+      setPdfUrl(null)
+      setPdfError(null)
+      return
+    }
+
+    let cancelled = false
+
+    const loadPdfUrl = async () => {
+      try {
+        setLoadingPdf(true)
+        setPdfError(null)
+        // pdfUri é o nome do arquivo (ex: "relatorio_123.pdf")
+        // O arquivo está em pdf_reports/ no Firebase Storage
+        const pdfPath = `pdf_reports/${report.pdfUri}`
+        const pdfRef = ref(storage, pdfPath)
+        const url = await getDownloadURL(pdfRef)
+        if (!cancelled) {
+          setPdfUrl(url)
+        }
+      } catch (error: any) {
+        console.error('Erro ao carregar URL do PDF:', error)
+        if (!cancelled) {
+          setPdfUrl(null)
+          // Mostrar erro apenas se não for erro de arquivo não encontrado
+          if (error?.code !== 'storage/object-not-found') {
+            setPdfError('Erro ao carregar PDF')
+          } else {
+            setPdfError('PDF não encontrado')
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingPdf(false)
+        }
+      }
+    }
+
+    loadPdfUrl()
+
+    return () => {
+      cancelled = true
+    }
+  }, [report?.pdfUri])
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -370,7 +421,46 @@ export default function ReportDetailPage() {
                 >
                   ← Voltar
                 </button>
-                <h1 className="text-2xl font-bold text-gray-900">{report.name}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-gray-900">{report.name}</h1>
+                  {report.pdfUri && (
+                    <div className="flex items-center gap-1">
+                      {loadingPdf ? (
+                        <span className="text-sm text-gray-500">Carregando PDF...</span>
+                      ) : pdfUrl ? (
+                        <a
+                          href={pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                          title="Visualizar PDF"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                            />
+                          </svg>
+                          <span className="text-sm">PDF Disponivel</span>
+                        </a>
+                      ) : pdfError ? (
+                        <span className="text-sm text-red-500" title={pdfError}>
+                          PDF não disponível
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-500">PDF em processamento...</span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 mt-2">
                   <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(report.status)}`}>
                     {getStatusLabel(report.status)}
