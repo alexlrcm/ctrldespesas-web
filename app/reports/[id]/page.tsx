@@ -5,10 +5,10 @@ import { useRouter, useParams } from 'next/navigation'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { useAuthContext } from '@/contexts/AuthContext'
 import { useFinanceiro } from '@/hooks/useFinanceiro'
-import { ExpenseReport, ReportStatus, Expense, PaymentMethod, Advance, UserProfile, AccountType, AdvanceReason, AdvanceStatus } from '@/lib/models/types'
+import { ExpenseReport, ReportStatus, Expense, PaymentMethod, Advance, UserProfile, AccountType, AdvanceReason, AdvanceStatus, Company, Project } from '@/lib/models/types'
 import { doc, getDoc } from 'firebase/firestore'
 import { db, storage } from '@/lib/firebase/config'
-import { getUserProfile } from '@/lib/services/firestore'
+import { getUserProfile, getCompanyById, getProjectById } from '@/lib/services/firestore'
 import { ref, getDownloadURL } from 'firebase/storage'
 import { toast } from 'react-toastify'
 
@@ -23,7 +23,7 @@ export default function ReportDetailPage() {
 
   const [report, setReport] = useState<ExpenseReport | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState(0) // 0: Despesas, 1: Adiantamentos, 2: Detalhes+Histórico, 3: Perfil
+  const [activeTab, setActiveTab] = useState(0) // 0: Despesas, 1: Adiantamentos, 2: Histórico, 3: Colaborador, 4: Dados do Cliente
   const [showApproveDialog, setShowApproveDialog] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
@@ -34,8 +34,11 @@ export default function ReportDetailPage() {
   const [showExpenseDetailsModal, setShowExpenseDetailsModal] = useState(false)
   const [advance, setAdvance] = useState<Advance | null>(null)
   const [creatorProfile, setCreatorProfile] = useState<UserProfile | null>(null)
+  const [company, setCompany] = useState<Company | null>(null)
+  const [project, setProject] = useState<Project | null>(null)
   const [loadingAdvance, setLoadingAdvance] = useState(false)
   const [loadingProfile, setLoadingProfile] = useState(false)
+  const [loadingCompany, setLoadingCompany] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
@@ -96,6 +99,29 @@ export default function ReportDetailPage() {
               console.error('Erro ao carregar perfil do criador:', err)
             } finally {
               setLoadingProfile(false)
+            }
+          }
+
+          // Carregar dados do projeto e empresa vinculada
+          if (reportData?.projectId) {
+            setLoadingCompany(true)
+            try {
+              const projectData = await getProjectById(reportData.projectId)
+              if (projectData) {
+                if (!cancelled) {
+                  setProject(projectData as Project)
+                }
+                if (projectData.companyId) {
+                  const companyData = await getCompanyById(projectData.companyId)
+                  if (!cancelled) {
+                    setCompany(companyData)
+                  }
+                }
+              }
+            } catch (err: any) {
+              console.error('Erro ao carregar dados do projeto/empresa:', err)
+            } finally {
+              setLoadingCompany(false)
             }
           }
         }
@@ -202,23 +228,67 @@ export default function ReportDetailPage() {
 
   const getStatusColor = (status: ReportStatus) => {
     switch (status) {
+      case ReportStatus.PENDENTE:
+        return 'bg-orange-100 text-orange-800' // Laranja
       case ReportStatus.ANALISE_CONTABIL:
-        return 'bg-blue-100 text-blue-800'
-      case ReportStatus.APROVADO_PARA_PAGAMENTO:
-        return 'bg-green-100 text-green-800'
+        return 'bg-purple-100 text-purple-800' // Roxo
       case ReportStatus.FINANCEIRO_APROVADO:
-        return 'bg-purple-100 text-purple-800'
+        return 'bg-blue-100 text-blue-800' // Azul
+      case ReportStatus.APROVADO_PARA_PAGAMENTO:
+        return 'bg-blue-100 text-blue-500' // Azul Claro
       case ReportStatus.PAGAMENTO_EFETUADO:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-green-100 text-green-800' // Verde
       case ReportStatus.REJEITADO:
-        return 'bg-red-100 text-red-800'
+        return 'bg-red-100 text-red-800' // Vermelho
       default:
         return 'bg-gray-100 text-gray-800'
     }
   }
 
+  // Função para obter cor de fundo do histórico (com alpha)
+  const getHistoryStatusBgColor = (status: ReportStatus) => {
+    switch (status) {
+      case ReportStatus.PENDENTE:
+        return 'bg-orange-50 border-orange-300' // Laranja
+      case ReportStatus.ANALISE_CONTABIL:
+        return 'bg-purple-50 border-purple-300' // Roxo
+      case ReportStatus.FINANCEIRO_APROVADO:
+        return 'bg-blue-50 border-blue-400' // Azul
+      case ReportStatus.APROVADO_PARA_PAGAMENTO:
+        return 'bg-blue-50 border-blue-300' // Azul Claro
+      case ReportStatus.PAGAMENTO_EFETUADO:
+        return 'bg-green-50 border-green-300' // Verde
+      case ReportStatus.REJEITADO:
+        return 'bg-red-50 border-red-300' // Vermelho
+      default:
+        return 'bg-gray-50 border-gray-300'
+    }
+  }
+
+  // Função para obter cor do texto do histórico
+  const getHistoryStatusTextColor = (status: ReportStatus) => {
+    switch (status) {
+      case ReportStatus.PENDENTE:
+        return 'text-orange-800' // Laranja
+      case ReportStatus.ANALISE_CONTABIL:
+        return 'text-purple-800' // Roxo
+      case ReportStatus.FINANCEIRO_APROVADO:
+        return 'text-blue-800' // Azul
+      case ReportStatus.APROVADO_PARA_PAGAMENTO:
+        return 'text-blue-500' // Azul Claro
+      case ReportStatus.PAGAMENTO_EFETUADO:
+        return 'text-green-800' // Verde
+      case ReportStatus.REJEITADO:
+        return 'text-red-800' // Vermelho
+      default:
+        return 'text-gray-800'
+    }
+  }
+
   const getStatusLabel = (status: ReportStatus) => {
     switch (status) {
+      case ReportStatus.PENDENTE:
+        return 'Pendente'
       case ReportStatus.ANALISE_CONTABIL:
         return 'Análise Contábil'
       case ReportStatus.APROVADO_PARA_PAGAMENTO:
@@ -518,7 +588,17 @@ export default function ReportDetailPage() {
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  Perfil
+                  Colaborador
+                </button>
+                <button
+                  onClick={() => setActiveTab(4)}
+                  className={`px-6 py-3 text-sm font-medium ${
+                    activeTab === 4
+                      ? 'border-b-2 border-primary text-primary'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Dados do Cliente
                 </button>
               </nav>
             </div>
@@ -706,16 +786,39 @@ export default function ReportDetailPage() {
                 </div>
               )}
 
-              {/* Aba Histórico + Detalhes */}
+              {/* Aba Histórico */}
               {activeTab === 2 && (
-                <div className="space-y-6">
-                  {/* Detalhes do Relatório */}
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                      Detalhes do Relatório
-                    </h3>
-                    <div className="bg-gray-50 rounded-lg p-6">
-                      <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  {/* Detalhes do Relatório - Layout em duas colunas */}
+                  <div className="bg-white rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-4 border-b border-gray-200">Detalhes do Relatório</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                      {/* Coluna Esquerda */}
+                      <div className="space-y-4">
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Total</dt>
+                          <dd className="mt-1 text-lg font-semibold text-orange-600">{formatCurrency(report.totalAmount)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Projeto</dt>
+                          <dd className="mt-1 text-sm text-gray-900">{report.projectName || 'Sem projeto'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Referência</dt>
+                          <dd className="mt-1 text-sm text-gray-900">{project?.referenceNumber || 'Não informado'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Cliente</dt>
+                          <dd className="mt-1 text-sm text-gray-900">{company?.name || project?.companyName || 'Não informado'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Responsável</dt>
+                          <dd className="mt-1 text-sm text-gray-900">{project?.responsibleName || 'Não informado'}</dd>
+                        </div>
+                      </div>
+
+                      {/* Coluna Direita */}
+                      <div className="space-y-4">
                         <div>
                           <dt className="text-sm font-medium text-gray-500">ID</dt>
                           <dd className="mt-1 text-sm text-gray-900 font-mono">{report.id}</dd>
@@ -729,69 +832,55 @@ export default function ReportDetailPage() {
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-sm font-medium text-gray-500">Total</dt>
-                          <dd className="mt-1 text-sm font-semibold text-gray-900">{formatCurrency(report.totalAmount)}</dd>
-                        </div>
-                        <div>
                           <dt className="text-sm font-medium text-gray-500">Data</dt>
                           <dd className="mt-1 text-sm text-gray-900">{formatDate(report.date)}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-sm font-medium text-gray-500">Projeto</dt>
-                          <dd className="mt-1 text-sm text-gray-900">{report.projectName || 'Sem projeto'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm font-medium text-gray-500">Criado por</dt>
                           <dd className="mt-1 text-sm text-gray-900">{report.createdByUserName || 'N/A'}</dd>
                         </div>
-                      </dl>
-
-                      {report.observations && (
-                        <div className="mt-4">
-                          <dt className="text-sm font-medium text-gray-500 mb-2">Observações</dt>
-                          <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-white p-3 rounded-md">
-                            {report.observations}
-                          </dd>
-                        </div>
-                      )}
-
-                      {report.approverObservations && (
-                        <div className="mt-4">
-                          <dt className="text-sm font-medium text-gray-500 mb-2">Observações Públicas</dt>
-                          <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-white p-3 rounded-md">
-                            {report.approverObservations}
-                          </dd>
-                        </div>
-                      )}
-
-                      {report.approvalObservations && (
-                        <div className="mt-4">
-                          <dt className="text-sm font-medium text-gray-500 mb-2">Observações do Financeiro</dt>
-                          <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-white p-3 rounded-md">
-                            {report.approvalObservations}
-                          </dd>
-                        </div>
-                      )}
+                      </div>
                     </div>
+
+                    {/* Observações */}
+                    {(report.observations || report.approverObservations || report.approvalObservations) && (
+                      <div className="mt-6">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4 pt-4 border-t border-gray-200">Observações</h3>
+                        <div className="space-y-2">
+                          {report.observations && (
+                            <p className="text-sm text-gray-900 whitespace-pre-wrap">{report.observations}</p>
+                          )}
+                          {report.approverObservations && (
+                            <p className="text-sm text-gray-900 whitespace-pre-wrap">{report.approverObservations}</p>
+                          )}
+                          {report.approvalObservations && (
+                            <p className="text-sm text-gray-900 whitespace-pre-wrap">{report.approvalObservations}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Histórico de Status */}
-                  <div>
+                  <div className="bg-white rounded-lg p-6">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">
                       Histórico de Status
                     </h3>
                     {report.statusHistory.length === 0 ? (
                       <p className="text-gray-500">Nenhum histórico disponível</p>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         {report.statusHistory.map((entry, index) => (
-                          <div key={index} className="border-l-4 border-primary pl-4 py-2">
+                          <div 
+                            key={index} 
+                            className={`border-l-4 pl-4 py-3 rounded-r ${getHistoryStatusBgColor(entry.status)}`}
+                          >
                             <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">
+                              <div className="flex-1">
+                                <p className={`text-sm font-medium ${getHistoryStatusTextColor(entry.status)}`}>
                                   {getStatusLabel(entry.status)}
                                 </p>
-                                <p className="text-xs text-gray-500 mt-1">
+                                <p className="text-xs text-gray-600 mt-1">
                                   {entry.changedBy && `Alterado por: ${entry.changedBy}`}
                                 </p>
                                 {entry.observations && (
@@ -800,7 +889,7 @@ export default function ReportDetailPage() {
                                   </p>
                                 )}
                               </div>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-gray-500 ml-4">
                                 {formatDateTime(entry.date)}
                               </p>
                             </div>
@@ -811,7 +900,7 @@ export default function ReportDetailPage() {
                   </div>
 
                   {/* Ações */}
-                  <div className="pt-6 border-t">
+                  <div className="bg-white rounded-lg p-6 border-t">
                     <h4 className="text-sm font-medium text-gray-900 mb-4">Ações</h4>
                     <div className="flex flex-wrap gap-4">
                       {canApprove && (
@@ -851,11 +940,11 @@ export default function ReportDetailPage() {
                 </div>
               )}
 
-              {/* Aba Perfil */}
+              {/* Aba Colaborador */}
               {activeTab === 3 && (
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Perfil do Criador
+                    Colaborador
                   </h3>
                   {loadingProfile ? (
                     <div className="text-center py-12">
@@ -948,6 +1037,127 @@ export default function ReportDetailPage() {
                     <div className="text-center py-12 text-gray-500">
                       <p>Perfil do criador não encontrado.</p>
                       <p className="text-sm mt-2">O perfil do criador ainda não foi configurado no sistema.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Aba Dados do Cliente */}
+              {activeTab === 4 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    Dados do Cliente
+                  </h3>
+                  {loadingCompany ? (
+                    <div className="text-center py-12">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+                      <p className="mt-4 text-gray-600">Carregando dados do cliente...</p>
+                    </div>
+                  ) : company ? (
+                    <div className="space-y-6">
+                      {/* Informações da Empresa */}
+                      <div className="bg-gray-50 rounded-lg p-6">
+                        <h4 className="text-md font-semibold text-gray-900 mb-4">
+                          Informações da Empresa
+                        </h4>
+                        <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Nome da Empresa</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.name || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">CNPJ</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.cnpj || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Endereço</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.address || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Complemento</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.complement || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Bairro</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.neighborhood || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">CEP</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.zipCode || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Estado</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.state || 'Não informado'}</dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      {/* Responsável pela Aprovação */}
+                      <div className="bg-gray-50 rounded-lg p-6">
+                        <h4 className="text-md font-semibold text-gray-900 mb-4">
+                          Responsável pela Aprovação
+                        </h4>
+                        <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Nome</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.approvalResponsibleName || 'Não informado'}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Cargo</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{company.approvalResponsibleRole || 'Não informado'}</dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      {/* Responsáveis Técnico/Comercial */}
+                      <div className="bg-gray-50 rounded-lg p-6">
+                        <h4 className="text-md font-semibold text-gray-900 mb-4">
+                          Responsáveis Técnico/Comercial
+                        </h4>
+                        <div className="space-y-4">
+                          <div className="border-l-4 border-primary pl-4">
+                            <h5 className="text-sm font-medium text-gray-900 mb-2">Responsável 1</h5>
+                            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Nome</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{company.responsible1Name || 'Não informado'}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Telefone</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{company.responsible1Phone || 'Não informado'}</dd>
+                              </div>
+                              <div className="md:col-span-2">
+                                <dt className="text-sm font-medium text-gray-500">Email</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{company.responsible1Email || 'Não informado'}</dd>
+                              </div>
+                            </dl>
+                          </div>
+                          <div className="border-l-4 border-primary pl-4">
+                            <h5 className="text-sm font-medium text-gray-900 mb-2">Responsável 2</h5>
+                            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Nome</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{company.responsible2Name || 'Não informado'}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Telefone</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{company.responsible2Phone || 'Não informado'}</dd>
+                              </div>
+                              <div className="md:col-span-2">
+                                <dt className="text-sm font-medium text-gray-500">Email</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{company.responsible2Email || 'Não informado'}</dd>
+                              </div>
+                            </dl>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <p>Este relatório não está associado a um projeto com empresa cadastrada.</p>
+                      {!report.projectId && (
+                        <p className="text-sm mt-2">Nenhum projeto vinculado a este relatório.</p>
+                      )}
                     </div>
                   )}
                 </div>

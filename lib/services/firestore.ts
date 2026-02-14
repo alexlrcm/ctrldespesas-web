@@ -17,6 +17,7 @@ import {
   UserProfile,
   Expense,
   UserRole,
+  Company,
 } from '@/lib/models/types'
 
 const COLLECTION_REPORTS = 'expense_reports'
@@ -24,6 +25,8 @@ const COLLECTION_ADVANCES = 'advances'
 const COLLECTION_EXPENSES = 'expenses'
 const COLLECTION_USERS = 'users'
 const COLLECTION_USER_PROFILES = 'user_profiles'
+const COLLECTION_COMPANIES = 'companies'
+const COLLECTION_PROJECTS = 'projects'
 
 // ========== REPORTS ==========
 
@@ -600,5 +603,69 @@ export async function getUserRoleById(userId: string): Promise<UserRole | null> 
   } catch (error) {
     console.error('Erro ao buscar role do usuário:', error)
     return null
+  }
+}
+
+// ========== COMPANIES ==========
+
+/**
+ * Busca uma empresa por ID
+ */
+export async function getCompanyById(companyId: string): Promise<Company | null> {
+  try {
+    const companyDoc = await getDoc(doc(db, COLLECTION_COMPANIES, companyId))
+    if (!companyDoc.exists()) {
+      return null
+    }
+
+    const data = companyDoc.data()
+    return {
+      id: companyDoc.id,
+      name: data.name || '',
+      cnpj: data.cnpj || '',
+      address: data.address || null,
+      complement: data.complement || null,
+      neighborhood: data.neighborhood || null,
+      zipCode: data.zipCode || null,
+      state: data.state || null,
+      approvalResponsibleName: data.approvalResponsibleName || null,
+      approvalResponsibleRole: data.approvalResponsibleRole || null,
+      responsible1Name: data.responsible1Name || null,
+      responsible1Phone: data.responsible1Phone || null,
+      responsible1Email: data.responsible1Email || null,
+      responsible2Name: data.responsible2Name || null,
+      responsible2Phone: data.responsible2Phone || null,
+      responsible2Email: data.responsible2Email || null,
+    }
+  } catch (error) {
+    console.error('Erro ao buscar empresa:', error)
+    throw error
+  }
+}
+
+/**
+ * Busca um projeto por ID
+ */
+export async function getProjectById(projectId: string): Promise<any | null> {
+  try {
+    const projectDoc = await getDoc(doc(db, COLLECTION_PROJECTS, projectId))
+    if (!projectDoc.exists()) {
+      return null
+    }
+
+    const data = projectDoc.data()
+    return {
+      id: projectDoc.id,
+      name: data.name || '',
+      companyId: data.companyId || '',
+      companyName: data.companyName || '',
+      companyCnpj: data.companyCnpj || '',
+      referenceNumber: data.referenceNumber || null,
+      date: data.date || null,
+      responsibleName: data.responsibleName || null,
+    }
+  } catch (error) {
+    console.error('Erro ao buscar projeto:', error)
+    throw error
   }
 }
