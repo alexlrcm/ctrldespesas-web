@@ -129,6 +129,7 @@ export interface Project {
   companyCnpj: string
   date?: string | null
   responsibleName?: string | null
+  documentationLink?: string | null
 }
 
 export interface Expense {

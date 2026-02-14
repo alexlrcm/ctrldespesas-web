@@ -304,6 +304,90 @@ export default function ReportDetailPage() {
     }
   }
 
+  // Funções auxiliares para extrair informações específicas das observações
+  const parseExpenseDetails = (expense: Expense) => {
+    const observations = expense.observations || ''
+    const lines = observations.split('\n').map(line => line.trim()).filter(line => line)
+    
+    const isQuilometragem = expense.expenseType === 'TRANSPORTE' && 
+                            observations.includes('Tipo: Transporte - Quilometragem')
+    
+    const transportSubtype = expense.expenseType === 'TRANSPORTE' && !isQuilometragem
+      ? lines.find(line => line.startsWith('Tipo: Transporte - '))?.substring('Tipo: Transporte - '.length).trim() || null
+      : null
+    
+    const details: {
+      transportSubtype?: string | null
+      originAddress?: string
+      destinationAddress?: string
+      initialKm?: string
+      finalKm?: string
+      totalKm?: string
+      kmValue?: string
+      travelPurpose?: string
+      hotelName?: string
+      checkIn?: string
+      checkOut?: string
+      cleanedObservations: string
+    } = {
+      cleanedObservations: observations
+    }
+    
+    if (isQuilometragem) {
+      // Extrair informações de quilometragem
+      lines.forEach(line => {
+        if (line.startsWith('Local Origem:')) {
+          details.originAddress = line.substring('Local Origem:'.length).trim()
+        } else if (line.startsWith('Local Destino:')) {
+          details.destinationAddress = line.substring('Local Destino:'.length).trim()
+        } else if (line.startsWith('KM Inicial:')) {
+          details.initialKm = line.substring('KM Inicial:'.length).trim()
+        } else if (line.startsWith('KM Destino:')) {
+          details.finalKm = line.substring('KM Destino:'.length).trim()
+        } else if (line.startsWith('KM Total:')) {
+          details.totalKm = line.substring('KM Total:'.length).trim()
+        } else if (line.startsWith('Valor por KM:')) {
+          details.kmValue = line.substring('Valor por KM:'.length).trim()
+        } else if (line.startsWith('Objetivo:')) {
+          details.travelPurpose = line.substring('Objetivo:'.length).trim()
+        }
+      })
+    } else if (transportSubtype) {
+      // Atribuir subtipo de transporte
+      details.transportSubtype = transportSubtype
+    }
+    
+    if (expense.expenseType === 'HOSPEDAGEM') {
+      // Extrair informações de hospedagem
+      lines.forEach(line => {
+        if (line.startsWith('Hotel:')) {
+          details.hotelName = line.substring('Hotel:'.length).trim()
+        } else if (line.startsWith('Check-in:')) {
+          details.checkIn = line.substring('Check-in:'.length).trim()
+        } else if (line.startsWith('Check-out:')) {
+          details.checkOut = line.substring('Check-out:'.length).trim()
+        }
+      })
+    }
+    
+    // Remover todas as linhas específicas das observações
+    details.cleanedObservations = lines
+      .filter(line => 
+        !line.startsWith('Tipo: Transporte -') &&
+        !line.startsWith('Local Origem:') &&
+        !line.startsWith('Local Destino:') &&
+        !line.startsWith('KM ') &&
+        !line.startsWith('Valor por KM:') &&
+        !line.startsWith('Objetivo:') &&
+        !line.startsWith('Hotel:') &&
+        !line.startsWith('Check-in:') &&
+        !line.startsWith('Check-out:')
+      )
+      .join('\n')
+    
+    return details
+  }
+
   const getPaymentMethodLabel = (method: PaymentMethod) => {
     switch (method) {
       case PaymentMethod.CARTAO_CORPORATIVO:
@@ -808,6 +892,23 @@ export default function ReportDetailPage() {
                           <dd className="mt-1 text-sm text-gray-900">{project?.referenceNumber || 'Não informado'}</dd>
                         </div>
                         <div>
+                          <dt className="text-sm font-medium text-gray-500">Link Docs Projeto:</dt>
+                          <dd className="mt-1 text-sm text-gray-900">
+                            {project?.documentationLink ? (
+                              <a
+                                href={project.documentationLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 underline"
+                              >
+                                Abrir Documentação
+                              </a>
+                            ) : (
+                              'Não informado'
+                            )}
+                          </dd>
+                        </div>
+                        <div>
                           <dt className="text-sm font-medium text-gray-500">Cliente</dt>
                           <dd className="mt-1 text-sm text-gray-900">{company?.name || project?.companyName || 'Não informado'}</dd>
                         </div>
@@ -1100,11 +1201,7 @@ export default function ReportDetailPage() {
                         <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <dt className="text-sm font-medium text-gray-500">Nome</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{company.approvalResponsibleName || 'Não informado'}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Cargo</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{company.approvalResponsibleRole || 'Não informado'}</dd>
+                            <dd className="mt-1 text-sm text-gray-900">{project?.responsibleName || 'Não informado'}</dd>
                           </div>
                         </dl>
                       </div>
@@ -1417,59 +1514,156 @@ export default function ReportDetailPage() {
                 </button>
               </div>
               <div className="p-6">
-                <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Tipo de Despesa</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{selectedExpense.expenseType}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Data</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{formatDate(selectedExpense.date)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Valor</dt>
-                    <dd className="mt-1 text-sm font-semibold text-gray-900">{formatCurrency(selectedExpense.amount)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Forma de Pagamento</dt>
-                    <dd className="mt-1 text-sm text-gray-900">{getPaymentMethodLabel(selectedExpense.paymentMethod)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-sm font-medium text-gray-500">Reembolsável</dt>
-                    <dd className="mt-1 text-sm text-gray-900">
-                      <span className={`px-2 py-1 text-xs font-medium rounded ${selectedExpense.reimbursable ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                        {selectedExpense.reimbursable ? 'Sim' : 'Não'}
-                      </span>
-                    </dd>
-                  </div>
-                  {selectedExpense.projectName && (
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Projeto</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{selectedExpense.projectName}</dd>
-                    </div>
-                  )}
-                  {selectedExpense.createdByUserName && (
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Criado por</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{selectedExpense.createdByUserName}</dd>
-                    </div>
-                  )}
-                  {selectedExpense.createdAtDateTime && (
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Data de Criação</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{formatDateTime(selectedExpense.createdAtDateTime)}</dd>
-                    </div>
-                  )}
-                </dl>
+                {(() => {
+                  const details = parseExpenseDetails(selectedExpense)
+                  const isQuilometragem = selectedExpense.expenseType === 'TRANSPORTE' && 
+                                          selectedExpense.observations?.includes('Tipo: Transporte - Quilometragem')
+                  
+                  return (
+                    <>
+                      <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Tipo de Despesa</dt>
+                          <dd className="mt-1 text-sm text-gray-900">
+                            {isQuilometragem 
+                              ? 'Transporte - Quilometragem'
+                              : details.transportSubtype 
+                                ? `Transporte - ${details.transportSubtype}`
+                                : selectedExpense.expenseType}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Data</dt>
+                          <dd className="mt-1 text-sm text-gray-900">{formatDate(selectedExpense.date)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Valor</dt>
+                          <dd className="mt-1 text-sm font-semibold text-gray-900">{formatCurrency(selectedExpense.amount)}</dd>
+                        </div>
+                        {!isQuilometragem && (
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Forma de Pagamento</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{getPaymentMethodLabel(selectedExpense.paymentMethod)}</dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt className="text-sm font-medium text-gray-500">Reembolsável</dt>
+                          <dd className="mt-1 text-sm text-gray-900">
+                            <span className={`px-2 py-1 text-xs font-medium rounded ${selectedExpense.reimbursable ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {selectedExpense.reimbursable ? 'Sim' : 'Não'}
+                            </span>
+                          </dd>
+                        </div>
+                        {selectedExpense.projectName && (
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Projeto</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{selectedExpense.projectName}</dd>
+                          </div>
+                        )}
+                        {selectedExpense.createdByUserName && (
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Criado por</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{selectedExpense.createdByUserName}</dd>
+                          </div>
+                        )}
+                        {selectedExpense.createdAtDateTime && (
+                          <div>
+                            <dt className="text-sm font-medium text-gray-500">Data de Criação</dt>
+                            <dd className="mt-1 text-sm text-gray-900">{formatDateTime(selectedExpense.createdAtDateTime)}</dd>
+                          </div>
+                        )}
+                      </dl>
 
-                {selectedExpense.observations && (
-                  <div className="mt-6">
-                    <dt className="text-sm font-medium text-gray-500 mb-2">Observações</dt>
-                    <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 p-3 rounded-md">
-                      {selectedExpense.observations}
-                    </dd>
-                  </div>
-                )}
+                      {/* Campos específicos para Quilometragem */}
+                      {isQuilometragem && (
+                        <div className="mt-6 pt-6 border-t">
+                          <h4 className="text-sm font-medium text-gray-700 mb-4">Detalhes da Quilometragem</h4>
+                          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {details.originAddress && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Local Origem</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.originAddress}</dd>
+                              </div>
+                            )}
+                            {details.destinationAddress && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Local Destino</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.destinationAddress}</dd>
+                              </div>
+                            )}
+                            {details.initialKm && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">KM Inicial</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.initialKm}</dd>
+                              </div>
+                            )}
+                            {details.finalKm && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">KM Destino</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.finalKm}</dd>
+                              </div>
+                            )}
+                            {details.totalKm && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">KM Total</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.totalKm}</dd>
+                              </div>
+                            )}
+                            {details.kmValue && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Valor por KM</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.kmValue}</dd>
+                              </div>
+                            )}
+                            {details.travelPurpose && (
+                              <div className="md:col-span-2">
+                                <dt className="text-sm font-medium text-gray-500">Objetivo</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.travelPurpose}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        </div>
+                      )}
+
+                      {/* Campos específicos para Hospedagem */}
+                      {selectedExpense.expenseType === 'HOSPEDAGEM' && (
+                        <div className="mt-6 pt-6 border-t">
+                          <h4 className="text-sm font-medium text-gray-700 mb-4">Detalhes da Hospedagem</h4>
+                          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {details.hotelName && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Hotel</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.hotelName}</dd>
+                              </div>
+                            )}
+                            {details.checkIn && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Check-in</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.checkIn}</dd>
+                              </div>
+                            )}
+                            {details.checkOut && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Check-out</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{details.checkOut}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        </div>
+                      )}
+
+                      {/* Observações (apenas as observações reais, sem os campos específicos) */}
+                      {details.cleanedObservations && details.cleanedObservations.trim() && (
+                        <div className="mt-6 pt-6 border-t">
+                          <dt className="text-sm font-medium text-gray-500 mb-2">Observações</dt>
+                          <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 p-3 rounded-md">
+                            {details.cleanedObservations}
+                          </dd>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
 
                 <div className="mt-6 pt-6 border-t">
                   <h4 className="text-sm font-medium text-gray-700 mb-3">Comprovantes Disponíveis</h4>

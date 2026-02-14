@@ -18,6 +18,7 @@ import {
   Expense,
   UserRole,
   Company,
+  Project,
 } from '@/lib/models/types'
 
 const COLLECTION_REPORTS = 'expense_reports'
@@ -646,7 +647,7 @@ export async function getCompanyById(companyId: string): Promise<Company | null>
 /**
  * Busca um projeto por ID
  */
-export async function getProjectById(projectId: string): Promise<any | null> {
+export async function getProjectById(projectId: string): Promise<Project | null> {
   try {
     const projectDoc = await getDoc(doc(db, COLLECTION_PROJECTS, projectId))
     if (!projectDoc.exists()) {
@@ -663,6 +664,7 @@ export async function getProjectById(projectId: string): Promise<any | null> {
       referenceNumber: data.referenceNumber || null,
       date: data.date || null,
       responsibleName: data.responsibleName || null,
+      documentationLink: data.documentationLink || null,
     }
   } catch (error) {
     console.error('Erro ao buscar projeto:', error)
