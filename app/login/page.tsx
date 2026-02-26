@@ -123,7 +123,7 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-500">
-            <p>Versão 1.6F - Web App</p>
+            <p>Versão 1.7B - Web App</p>
           </div>
         </div>
       </div>

@@ -1,0 +1,139 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Permite executar manualmente
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Test SSH connection
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "echo 'SSH connection successful'" || exit 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./web-app
+        run: npm ci
+
+      - name: Build application
+        working-directory: ./web-app
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_DOMAIN: ${{ secrets.NEXT_PUBLIC_DOMAIN }}
+          NEXT_PUBLIC_FILE_RETENTION_DAYS: ${{ secrets.NEXT_PUBLIC_FILE_RETENTION_DAYS }}
+        run: npm run build
+
+      - name: Create deployment package
+        working-directory: ./web-app
+        run: |
+          mkdir -p ../deploy-package
+          cp -r app components hooks lib public types *.json *.js *.ts *.tsx ../deploy-package/ 2>/dev/null || true
+          cp -r app components hooks lib public types package.json tsconfig.json next.config.js postcss.config.js tailwind.config.js ../deploy-package/
+          cd ../deploy-package
+          tar czf ../web-app-deploy.tar.gz .
+          cd ..
+
+      - name: Deploy to VPS
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "web-app-deploy.tar.gz"
+          target: "/tmp"
+          timeout: 60s
+          strip_components: 0
+
+      - name: Execute deployment script on VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          timeout: 300s
+          command_timeout: 300s
+          script: |
+            cd /var/www/ctrldespesas-web/web-app
+            
+            # Backup atual
+            if [ -d ".next" ]; then
+              echo "📦 Fazendo backup..."
+              tar czf /tmp/backup-$(date +%Y%m%d-%H%M%S).tar.gz .next .env.local 2>/dev/null || true
+            fi
+            
+            # Extrair novo código
+            echo "📦 Extraindo novo código..."
+            tar xzf /tmp/web-app-deploy.tar.gz -C /tmp/deploy-extract
+            rm -rf /tmp/web-app-deploy.tar.gz
+            
+            # Copiar arquivos (preservando .env.local e node_modules)
+            echo "📋 Copiando arquivos..."
+            cp -r /tmp/deploy-extract/* .
+            rm -rf /tmp/deploy-extract
+            
+            # Instalar dependências se necessário
+            if [ ! -d "node_modules" ] || [ ! -f "node_modules/.bin/next" ]; then
+              echo "📦 Instalando dependências..."
+              npm install
+            fi
+            
+            # Corrigir permissões
+            chmod +x node_modules/.bin/* 2>/dev/null || true
+            
+            # Rebuild
+            echo "🔨 Fazendo build..."
+            rm -rf .next node_modules/.cache
+            npm run build
+            
+            # Verificar build
+            if [ ! -f ".next/BUILD_ID" ]; then
+              echo "❌ Build falhou!"
+              exit 1
+            fi
+            
+            # Reiniciar PM2
+            echo "🚀 Reiniciando aplicação..."
+            pm2 restart ctrldespesas-web || pm2 start npm --name "ctrldespesas-web" -- start
+            pm2 save
+            
+            echo "✅ Deploy concluído com sucesso!"
+
+      - name: Deployment status
+        if: success()
+        run: echo "✅ Deploy concluído com sucesso!"
+
+      - name: Deployment failed
+        if: failure()
+        run: echo "❌ Deploy falhou! Verifique os logs acima."

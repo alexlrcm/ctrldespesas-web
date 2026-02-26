@@ -3,14 +3,19 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { ProcessingModal } from '@/components/ProcessingModal'
 import { useAuthContext } from '@/contexts/AuthContext'
 import { useFinanceiro } from '@/hooks/useFinanceiro'
-import { ExpenseReport, ReportStatus, Expense, PaymentMethod, Advance, UserProfile, AccountType, AdvanceReason, AdvanceStatus, Company, Project } from '@/lib/models/types'
-import { doc, getDoc } from 'firebase/firestore'
+import { useOperador } from '@/hooks/useOperador'
+import { useUserRole } from '@/hooks/useUserRole'
+import { ExpenseReport, ReportStatus, Expense, PaymentMethod, Advance, UserProfile, AccountType, AdvanceReason, AdvanceStatus, Company, Project, UserRole } from '@/lib/models/types'
+import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore'
 import { db, storage } from '@/lib/firebase/config'
-import { getUserProfile, getCompanyById, getProjectById } from '@/lib/services/firestore'
+import { getUserProfile, getCompanyById, getProjectById, updateExpensesReportId, submitReport, getOperadorExpensesWithoutReport, getAdvancesByReportId, getAdvanceById } from '@/lib/services/firestore'
 import { ref, getDownloadURL } from 'firebase/storage'
 import { toast } from 'react-toastify'
+import { generateReportPdf, uploadPdfToStorage } from '@/lib/utils/pdfGenerator'
+import { prepareEmailForSending, openEmailClient, copyEmailToClipboard, prepareAttachmentsForEmail, downloadAllAttachments } from '@/lib/utils/emailService'
 
 export const dynamicParams = true
 
@@ -19,7 +24,9 @@ export default function ReportDetailPage() {
   const params = useParams()
   const reportId = params?.id as string
   const { user } = useAuthContext()
+  const { role, isOperador, isFinanceiro } = useUserRole()
   const { loadReportDetails, approveReport, rejectReport, confirmPayment, rejectPayment, loadCreatorProfile } = useFinanceiro()
+  const operadorData = useOperador()
 
   const [report, setReport] = useState<ExpenseReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -27,12 +34,14 @@ export default function ReportDetailPage() {
   const [showApproveDialog, setShowApproveDialog] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  const [showAddExpensesDialog, setShowAddExpensesDialog] = useState(false)
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [observations, setObservations] = useState('')
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
   const [showReceiptModal, setShowReceiptModal] = useState(false)
   const [showExpenseDetailsModal, setShowExpenseDetailsModal] = useState(false)
-  const [advance, setAdvance] = useState<Advance | null>(null)
+  const [advances, setAdvances] = useState<Advance[]>([])
   const [creatorProfile, setCreatorProfile] = useState<UserProfile | null>(null)
   const [company, setCompany] = useState<Company | null>(null)
   const [project, setProject] = useState<Project | null>(null)
@@ -42,6 +51,24 @@ export default function ReportDetailPage() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [selectedExpensesToAdd, setSelectedExpensesToAdd] = useState<string[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  
+  // Estados para opções de envio
+  const [sendEmailDetails, setSendEmailDetails] = useState(false)
+  const [sendPdfByEmail, setSendPdfByEmail] = useState(false)
+  
+  // Estados para diálogo de PDF
+  const [showPdfDialog, setShowPdfDialog] = useState(false)
+  const [includeExpenseDetails, setIncludeExpenseDetails] = useState(true)
+  const [includeAttachments, setIncludeAttachments] = useState(false)
+  const [rdParaCliente, setRdParaCliente] = useState(false)
+  const [generatingPdf, setGeneratingPdf] = useState(false)
+  
+  // Estados para modal de processamento
+  const [showProcessingModal, setShowProcessingModal] = useState(false)
+  const [processingStep, setProcessingStep] = useState('')
+  const [processingProgress, setProcessingProgress] = useState(0)
 
   useEffect(() => {
     if (!reportId) return
@@ -55,34 +82,39 @@ export default function ReportDetailPage() {
         if (!cancelled) {
           setReport(reportData)
           
-          // Carregar adiantamento se houver
-          if (reportData?.advanceId) {
-            setLoadingAdvance(true)
-            try {
-              const advanceDoc = await getDoc(doc(db, 'advances', reportData.advanceId))
-              if (advanceDoc.exists()) {
-                const data = advanceDoc.data()
-                setAdvance({
-                  id: advanceDoc.id,
-                  name: data.name || '',
-                  amount: data.amount || 0,
-                  workPeriodStart: data.workPeriodStart || '',
-                  workPeriodEnd: data.workPeriodEnd || '',
-                  reason: data.reason,
-                  projectId: data.projectId || null,
-                  reportId: data.reportId || null,
-                  reportName: data.reportName || null,
-                  observations: data.observations || '',
-                  createdByUserId: data.createdByUserId || null,
-                  createdByUserName: data.createdByUserName || null,
-                  createdAtDateTime: data.createdAtDateTime || null,
-                  status: data.status as AdvanceStatus,
-                  statusHistory: data.statusHistory || [],
-                })
+          // Carregar todos os adiantamentos vinculados ao relatório
+          setLoadingAdvance(true)
+          try {
+            console.log('🔄 Carregando adiantamentos para reportId:', reportId)
+            const reportAdvances = await getAdvancesByReportId(reportId)
+            console.log('📋 Adiantamentos encontrados por reportId:', reportAdvances.length, reportAdvances)
+            
+            // Também buscar por advanceId se o relatório tiver um advanceId
+            let allAdvances = [...reportAdvances]
+            if (reportData?.advanceId) {
+              console.log('🔍 Relatório tem advanceId:', reportData.advanceId)
+              try {
+                const advanceById = await getAdvanceById(reportData.advanceId)
+                if (advanceById && !allAdvances.find(a => a.id === advanceById.id)) {
+                  console.log('➕ Adicionando adiantamento encontrado por advanceId:', advanceById.id)
+                  allAdvances.push(advanceById)
+                }
+              } catch (err: any) {
+                console.warn('⚠️ Erro ao buscar adiantamento por advanceId:', err)
               }
-            } catch (err: any) {
-              console.error('Erro ao carregar adiantamento:', err)
-            } finally {
+            }
+            
+            console.log('✅ Total de adiantamentos carregados:', allAdvances.length, allAdvances)
+            if (!cancelled) {
+              setAdvances(allAdvances)
+            }
+          } catch (err: any) {
+            console.error('❌ Erro ao carregar adiantamentos:', err)
+            if (!cancelled) {
+              setAdvances([])
+            }
+          } finally {
+            if (!cancelled) {
               setLoadingAdvance(false)
             }
           }
@@ -525,6 +557,341 @@ export default function ReportDetailPage() {
     }
   }
 
+  const handleAddExpenses = async () => {
+    if (!report || selectedExpensesToAdd.length === 0) return
+
+    try {
+      setSubmitting(true)
+      await updateExpensesReportId(selectedExpensesToAdd, report.id, report.name)
+      
+      // Recarregar relatório
+      const updatedReport = await loadReportDetails(report.id)
+      setReport(updatedReport)
+      setShowAddExpensesDialog(false)
+      setSelectedExpensesToAdd([])
+      toast.success('Despesas adicionadas ao relatório!')
+    } catch (error: any) {
+      console.error('Erro ao adicionar despesas:', error)
+      toast.error('Erro ao adicionar despesas: ' + error.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleSubmitReport = async () => {
+    if (!report || !user) return
+
+    try {
+      setSubmitting(true)
+      setShowSubmitDialog(false)
+      
+      // Se PDF está marcado para envio (com ou sem detalhes), abrir diálogo de PDF primeiro
+      if (sendPdfByEmail) {
+        setShowPdfDialog(true)
+        setSubmitting(false) // Resetar submitting para permitir que o diálogo de PDF funcione
+        return
+      }
+      
+      // Mostrar modal de processamento
+      setShowProcessingModal(true)
+      setProcessingProgress(0)
+      setProcessingStep('Preparando envio do relatório...')
+      
+      const userName = creatorProfile?.fullName || creatorProfile?.displayName || user.email?.split('@')[0] || 'Operador'
+      
+      // Enviar relatório
+      setProcessingStep('Atualizando status do relatório...')
+      setProcessingProgress(20)
+      await submitReport(report.id, userName)
+      
+      // Enviar email com detalhes se solicitado
+      if (sendEmailDetails) {
+        setProcessingStep('Preparando email com detalhes...')
+        setProcessingProgress(40)
+        
+        // Buscar emails dos usuários FINANCEIRO
+        const financeiroQuery = query(
+          collection(db, 'users'),
+          where('role', '==', UserRole.FINANCEIRO)
+        )
+        const financeiroSnapshot = await getDocs(financeiroQuery)
+        const financeiroEmails = financeiroSnapshot.docs
+          .map((doc) => doc.data().email)
+          .filter((email): email is string => Boolean(email))
+        
+        if (financeiroEmails.length > 0) {
+          setProcessingStep('Gerando links de comprovantes...')
+          setProcessingProgress(60)
+          
+          // Gerar links de comprovantes
+          const emailData = await prepareEmailForSending(report, report.expenses, {
+            sendEmailDetails: true,
+            attachReceipts: true, // Gerar links de comprovantes
+            sendPdfByEmail: false,
+            recipientEmails: financeiroEmails,
+            companyName: company?.name,
+          })
+          
+          setProcessingStep('Abrindo cliente de email...')
+          setProcessingProgress(90)
+          
+          // Copiar conteúdo HTML para área de transferência
+          await copyEmailToClipboard(emailData.htmlBody, emailData.body)
+          
+          // Abrir cliente de email
+          const mailtoLink = `mailto:${financeiroEmails.join(',')}?subject=${encodeURIComponent(emailData.subject)}&body=${encodeURIComponent(emailData.body)}`
+          const link = document.createElement('a')
+          link.href = mailtoLink
+          link.style.display = 'none'
+          document.body.appendChild(link)
+          link.click()
+          setTimeout(() => {
+            if (document.body.contains(link)) {
+              document.body.removeChild(link)
+            }
+          }, 100)
+          
+          toast.info('Conteúdo do email copiado para área de transferência!')
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+      
+      setProcessingStep('Finalizando...')
+      setProcessingProgress(100)
+      
+      // Recarregar relatório
+      const updatedReport = await loadReportDetails(report.id)
+      setReport(updatedReport)
+      
+      // Resetar estados
+      setSendEmailDetails(false)
+      setSendPdfByEmail(false)
+      
+      // Fechar modal após um breve delay
+      setTimeout(() => {
+        setShowProcessingModal(false)
+        toast.success('Relatório enviado para análise contábil!')
+      }, 1000)
+    } catch (error: any) {
+      console.error('Erro ao enviar relatório:', error)
+      setShowProcessingModal(false)
+      toast.error('Erro ao enviar relatório: ' + error.message)
+    } finally {
+      setSubmitting(false)
+      setProcessingProgress(0)
+    }
+  }
+  
+  const handleGeneratePdfAndSubmit = async () => {
+    if (!report || !user) return
+
+    try {
+      setGeneratingPdf(true)
+      setShowPdfDialog(false)
+      
+      // Mostrar modal de processamento
+      setShowProcessingModal(true)
+      setProcessingProgress(0)
+      setProcessingStep('Iniciando processamento...')
+      
+      let pdfBlob: Blob | undefined
+      let pdfFileName: string | undefined
+      let pdfUrl: string | undefined
+      
+      // Debug: verificar estados
+      console.log('🔍 Estados:', { sendPdfByEmail, sendEmailDetails })
+      
+      // Gerar PDF se solicitado
+      if (sendPdfByEmail) {
+        setProcessingStep('Buscando template PDF timbrado...')
+        setProcessingProgress(10)
+        
+        setProcessingStep('Gerando PDF do relatório...')
+        setProcessingProgress(20)
+        
+        const pdfResult = await generateReportPdf(report, report.expenses, {
+          includeExpenseDetails,
+          includeAttachments,
+          rdParaCliente,
+          companyName: company?.name || undefined,
+          projectReferenceNumber: project?.referenceNumber || undefined,
+          responsibleName: project?.responsibleName || undefined,
+          userProfile: creatorProfile || undefined,
+        })
+        
+        pdfBlob = pdfResult.blob
+        pdfFileName = pdfResult.fileName
+        
+        setProcessingStep('Fazendo upload do PDF...')
+        setProcessingProgress(50)
+        
+        // Fazer upload do PDF para Firebase Storage
+        pdfUrl = await uploadPdfToStorage(pdfBlob, pdfFileName)
+        
+        setProcessingStep('Atualizando relatório...')
+        setProcessingProgress(60)
+        
+        // Atualizar relatório com pdfUri
+        const reportRef = doc(db, 'expense_reports', report.id)
+        await updateDoc(reportRef, {
+          pdfUri: pdfFileName,
+        })
+      }
+      
+      setProcessingStep('Enviando relatório para análise...')
+      setProcessingProgress(70)
+      
+      // Enviar relatório
+      const userName = creatorProfile?.fullName || creatorProfile?.displayName || user.email?.split('@')[0] || 'Operador'
+      await submitReport(report.id, userName)
+      
+      // Preparar e enviar email
+      // Se apenas PDF está selecionado (sem detalhes), abrir email apenas com link do PDF
+      // IMPORTANTE: Verificar se sendEmailDetails está definido e é false
+      const isOnlyPdfSelected = sendPdfByEmail && pdfUrl && (sendEmailDetails === false || sendEmailDetails === undefined)
+      
+      console.log('🔍 Verificando envio de email:', { 
+        sendPdfByEmail, 
+        sendEmailDetails, 
+        pdfUrl: !!pdfUrl,
+        isOnlyPdfSelected 
+      })
+      
+      if (isOnlyPdfSelected) {
+        setProcessingStep('Preparando email com link do PDF...')
+        setProcessingProgress(75)
+        
+        // Buscar emails dos usuários FINANCEIRO
+        const financeiroQuery = query(
+          collection(db, 'users'),
+          where('role', '==', UserRole.FINANCEIRO)
+        )
+        const financeiroSnapshot = await getDocs(financeiroQuery)
+        const financeiroEmails = financeiroSnapshot.docs
+          .map((doc) => doc.data().email)
+          .filter((email): email is string => Boolean(email))
+        
+        if (financeiroEmails.length > 0) {
+          setProcessingStep('Abrindo cliente de email...')
+          setProcessingProgress(90)
+          
+          // Criar email simples apenas com link do PDF
+          const subject = `Relatório de Despesas - ${report.name} - Análise Contábil`
+          const emailBody = `Relatório de Despesas\n\nID: ${report.id.slice(-9).padStart(9, '0')}\nNome: ${report.name}\n\n📄 PDF do Relatório:\n${pdfUrl}\n\nClique no link acima para baixar o relatório em PDF.`
+          const emailHtml = `<html><body style="font-family: Arial, sans-serif;"><h2>Relatório de Despesas</h2><p><strong>ID:</strong> ${report.id.slice(-9).padStart(9, '0')}</p><p><strong>Nome:</strong> ${report.name}</p><div style="margin-top: 20px; padding: 15px; background-color: #f0f7ff; border-left: 4px solid #4285F4; border-radius: 4px;"><p style="margin: 0 0 10px 0;"><strong>📄 PDF do Relatório</strong></p><p style="margin: 0;"><a href="${pdfUrl}" target="_blank" style="color: #4285F4; text-decoration: none; font-weight: bold; font-size: 16px;">⬇️ Download Relatório em PDF</a></p></div></body></html>`
+          
+          // Copiar conteúdo HTML para área de transferência
+          await copyEmailToClipboard(emailHtml, emailBody)
+          
+          // Abrir cliente de email
+          const mailtoLink = `mailto:${financeiroEmails.join(',')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`
+          const link = document.createElement('a')
+          link.href = mailtoLink
+          link.style.display = 'none'
+          document.body.appendChild(link)
+          link.click()
+          setTimeout(() => {
+            if (document.body.contains(link)) {
+              document.body.removeChild(link)
+            }
+          }, 100)
+          
+          toast.info('Conteúdo do email copiado para área de transferência!')
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+      
+      // Se ambas opções estão selecionadas (PDF + detalhes)
+      if (sendEmailDetails && sendPdfByEmail) {
+        setProcessingStep('Preparando email com detalhes e PDF...')
+        setProcessingProgress(75)
+        
+        // Buscar emails dos usuários FINANCEIRO
+        const financeiroQuery = query(
+          collection(db, 'users'),
+          where('role', '==', UserRole.FINANCEIRO)
+        )
+        const financeiroSnapshot = await getDocs(financeiroQuery)
+        const financeiroEmails = financeiroSnapshot.docs
+          .map((doc) => doc.data().email)
+          .filter((email): email is string => Boolean(email))
+        
+        if (financeiroEmails.length > 0) {
+          setProcessingStep('Gerando conteúdo do email...')
+          setProcessingProgress(80)
+          
+          const emailData = await prepareEmailForSending(report, report.expenses, {
+            sendEmailDetails: true,
+            attachReceipts: false,
+            sendPdfByEmail: true,
+            pdfBlob,
+            pdfFileName: pdfFileName || undefined,
+            pdfDownloadUrl: pdfUrl,
+            recipientEmails: financeiroEmails,
+            companyName: company?.name || undefined,
+          })
+          
+          setProcessingStep('Abrindo cliente de email...')
+          setProcessingProgress(95)
+          
+          // Copiar conteúdo HTML para área de transferência
+          await copyEmailToClipboard(emailData.htmlBody, emailData.body)
+          
+          // Abrir cliente de email
+          const mailtoLink = `mailto:${financeiroEmails.join(',')}?subject=${encodeURIComponent(emailData.subject)}&body=${encodeURIComponent(emailData.body)}`
+          const link = document.createElement('a')
+          link.href = mailtoLink
+          link.style.display = 'none'
+          document.body.appendChild(link)
+          link.click()
+          setTimeout(() => {
+            if (document.body.contains(link)) {
+              document.body.removeChild(link)
+            }
+          }, 100)
+          
+          toast.info('Conteúdo do email copiado para área de transferência!')
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+      
+      setProcessingStep('Finalizando...')
+      setProcessingProgress(100)
+      
+      // Recarregar relatório
+      const updatedReport = await loadReportDetails(report.id)
+      setReport(updatedReport)
+      
+      // Resetar estados
+      setSendEmailDetails(false)
+      setSendPdfByEmail(false)
+      setIncludeExpenseDetails(true)
+      setIncludeAttachments(false)
+      setRdParaCliente(false)
+      
+      // Fechar modal após um breve delay
+      setTimeout(() => {
+        setShowProcessingModal(false)
+        toast.success('Relatório enviado para análise contábil!')
+      }, 1500)
+    } catch (error: any) {
+      console.error('Erro ao gerar PDF e enviar relatório:', error)
+      setShowProcessingModal(false)
+      toast.error('Erro ao gerar PDF e enviar relatório: ' + error.message)
+    } finally {
+      setGeneratingPdf(false)
+      setProcessingProgress(0)
+    }
+  }
+
+  const toggleExpenseSelection = (expenseId: string) => {
+    setSelectedExpensesToAdd(prev =>
+      prev.includes(expenseId)
+        ? prev.filter(id => id !== expenseId)
+        : [...prev, expenseId]
+    )
+  }
+
   if (loading) {
     return (
       <ProtectedRoute>
@@ -556,10 +923,18 @@ export default function ReportDetailPage() {
     )
   }
 
-  const canApprove = report.status === ReportStatus.ANALISE_CONTABIL
-  const canReject = report.status === ReportStatus.ANALISE_CONTABIL
+  const canApprove = report.status === ReportStatus.ANALISE_CONTABIL && isFinanceiro
+  const canReject = report.status === ReportStatus.ANALISE_CONTABIL && isFinanceiro
   const canConfirmPayment = report.status === ReportStatus.APROVADO_PARA_PAGAMENTO
   const canRejectPayment = report.status === ReportStatus.APROVADO_PARA_PAGAMENTO
+  
+  // Verificar se o usuário é o criador do relatório (OPERADOR)
+  const isCreator = isOperador && user?.uid === report.createdByUserId
+  const canEdit = isCreator && report.status === ReportStatus.PENDENTE
+  const canSubmit = isCreator && report.status === ReportStatus.PENDENTE && report.expenses.length > 0
+  
+  // Filtrar despesas disponíveis (sem relatório)
+  const expensesWithoutReport = isOperador ? operadorData.expenses.filter(e => !e.reportId) : []
 
   return (
     <ProtectedRoute>
@@ -630,6 +1005,20 @@ export default function ReportDetailPage() {
 
         {/* Main Content */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Botões de Ação para OPERADOR */}
+          {canEdit && (
+            <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+              <div className="flex gap-4">
+                <button
+                  onClick={() => router.push(`/expenses/new?reportId=${reportId}`)}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors"
+                >
+                  + Nova Despesa
+                </button>
+              </div>
+            </div>
+          )}
+          
           {/* Tabs */}
           <div className="bg-white rounded-lg shadow-md mb-6">
             <div className="border-b">
@@ -772,95 +1161,97 @@ export default function ReportDetailPage() {
                   {loadingAdvance ? (
                     <div className="text-center py-12">
                       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-                      <p className="mt-4 text-gray-600">Carregando adiantamento...</p>
+                      <p className="mt-4 text-gray-600">Carregando adiantamentos...</p>
                     </div>
-                  ) : advance ? (
+                  ) : advances.length > 0 ? (
                     <div className="space-y-6">
-                      <div className="bg-gray-50 rounded-lg p-6">
-                        <h4 className="text-md font-semibold text-gray-900 mb-4">
-                          Informações do Adiantamento
-                        </h4>
-                        <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Nome</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{advance.name}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Valor</dt>
-                            <dd className="mt-1 text-sm font-semibold text-gray-900">{formatCurrency(advance.amount)}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Motivo</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{getAdvanceReasonLabel(advance.reason)}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Status</dt>
-                            <dd className="mt-1">
-                              <span className={`px-2 py-1 text-xs font-medium rounded ${getAdvanceStatusColor(advance.status)}`}>
-                                {getAdvanceStatusLabel(advance.status)}
-                              </span>
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Período de Trabalho - Início</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{formatDate(advance.workPeriodStart)}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Período de Trabalho - Fim</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{formatDate(advance.workPeriodEnd)}</dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Criado por</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{advance.createdByUserName || 'N/A'}</dd>
-                          </div>
-                          {advance.createdAtDateTime && (
+                      {advances.map((advance) => (
+                        <div key={advance.id} className="bg-gray-50 rounded-lg p-6">
+                          <h4 className="text-md font-semibold text-gray-900 mb-4">
+                            Informações do Adiantamento
+                          </h4>
+                          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                              <dt className="text-sm font-medium text-gray-500">Data de Criação</dt>
-                              <dd className="mt-1 text-sm text-gray-900">{formatDateTime(advance.createdAtDateTime)}</dd>
+                              <dt className="text-sm font-medium text-gray-500">Nome</dt>
+                              <dd className="mt-1 text-sm text-gray-900">{advance.name}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm font-medium text-gray-500">Valor</dt>
+                              <dd className="mt-1 text-sm font-semibold text-gray-900">{formatCurrency(advance.amount)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm font-medium text-gray-500">Motivo</dt>
+                              <dd className="mt-1 text-sm text-gray-900">{getAdvanceReasonLabel(advance.reason)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm font-medium text-gray-500">Status</dt>
+                              <dd className="mt-1">
+                                <span className={`px-2 py-1 text-xs font-medium rounded ${getAdvanceStatusColor(advance.status)}`}>
+                                  {getAdvanceStatusLabel(advance.status)}
+                                </span>
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm font-medium text-gray-500">Período de Trabalho - Início</dt>
+                              <dd className="mt-1 text-sm text-gray-900">{formatDate(advance.workPeriodStart)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm font-medium text-gray-500">Período de Trabalho - Fim</dt>
+                              <dd className="mt-1 text-sm text-gray-900">{formatDate(advance.workPeriodEnd)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-sm font-medium text-gray-500">Criado por</dt>
+                              <dd className="mt-1 text-sm text-gray-900">{advance.createdByUserName || 'N/A'}</dd>
+                            </div>
+                            {advance.createdAtDateTime && (
+                              <div>
+                                <dt className="text-sm font-medium text-gray-500">Data de Criação</dt>
+                                <dd className="mt-1 text-sm text-gray-900">{formatDateTime(advance.createdAtDateTime)}</dd>
+                              </div>
+                            )}
+                          </dl>
+                          {advance.observations && (
+                            <div className="mt-4">
+                              <dt className="text-sm font-medium text-gray-500 mb-2">Observações</dt>
+                              <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-white p-3 rounded-md">
+                                {advance.observations}
+                              </dd>
                             </div>
                           )}
-                        </dl>
-                        {advance.observations && (
-                          <div className="mt-4">
-                            <dt className="text-sm font-medium text-gray-500 mb-2">Observações</dt>
-                            <dd className="text-sm text-gray-900 whitespace-pre-wrap bg-white p-3 rounded-md">
-                              {advance.observations}
-                            </dd>
-                          </div>
-                        )}
-                      </div>
 
-                      {advance.statusHistory && advance.statusHistory.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-6">
-                          <h4 className="text-md font-semibold text-gray-900 mb-4">
-                            Histórico do Adiantamento
-                          </h4>
-                          <div className="space-y-4">
-                            {advance.statusHistory.map((entry, index) => (
-                              <div key={index} className="border-l-4 border-primary pl-4 py-2">
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <p className="text-sm font-medium text-gray-900">
-                                      {getAdvanceStatusLabel(entry.status)}
-                                    </p>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                      {entry.changedBy && `Por: ${entry.changedBy}`}
-                                    </p>
-                                    {entry.observations && (
-                                      <p className="text-sm text-gray-700 mt-2">
-                                        {entry.observations}
+                          {advance.statusHistory && advance.statusHistory.length > 0 && (
+                            <div className="mt-6">
+                              <h5 className="text-sm font-semibold text-gray-900 mb-3">
+                                Histórico do Adiantamento
+                              </h5>
+                              <div className="space-y-3">
+                                {advance.statusHistory.map((entry, index) => (
+                                  <div key={index} className="border-l-4 border-primary pl-4 py-2 bg-white rounded">
+                                    <div className="flex justify-between items-start">
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-900">
+                                          {getAdvanceStatusLabel(entry.status)}
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          {entry.changedBy && `Por: ${entry.changedBy}`}
+                                        </p>
+                                        {entry.observations && (
+                                          <p className="text-sm text-gray-700 mt-2">
+                                            {entry.observations}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-gray-500">
+                                        {formatDateTime(entry.date)}
                                       </p>
-                                    )}
+                                    </div>
                                   </div>
-                                  <p className="text-xs text-gray-500">
-                                    {formatDateTime(entry.date)}
-                                  </p>
-                                </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ))}
                     </div>
                   ) : (
                     <div className="text-center py-12 text-gray-500">
@@ -1705,6 +2096,225 @@ export default function ReportDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Dialog: Adicionar Despesas */}
+        {showAddExpensesDialog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
+              <div className="px-6 py-4 border-b">
+                <h2 className="text-xl font-semibold text-gray-900">Adicionar Despesas ao Relatório</h2>
+              </div>
+              <div className="px-6 py-4 overflow-y-auto flex-1">
+                {expensesWithoutReport.length === 0 ? (
+                  <p className="text-gray-500">Nenhuma despesa disponível para adicionar.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {expensesWithoutReport.map((expense) => (
+                      <div
+                        key={expense.id}
+                        className="flex items-center p-3 border rounded hover:bg-gray-50 cursor-pointer"
+                        onClick={() => toggleExpenseSelection(expense.id)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedExpensesToAdd.includes(expense.id)}
+                          onChange={() => toggleExpenseSelection(expense.id)}
+                          className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                        />
+                        <div className="ml-3 flex-1">
+                          <div className="flex justify-between">
+                            <span className="text-sm font-medium text-gray-900">
+                              {expense.expenseType} - {formatDate(expense.date)}
+                            </span>
+                            <span className="text-sm font-semibold text-gray-900">
+                              {formatCurrency(expense.amount)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {expense.projectName || 'Sem projeto'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t flex gap-4">
+                <button
+                  onClick={() => {
+                    setShowAddExpensesDialog(false)
+                    setSelectedExpensesToAdd([])
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAddExpenses}
+                  disabled={selectedExpensesToAdd.length === 0 || submitting}
+                  className="flex-1 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? 'Adicionando...' : `Adicionar (${selectedExpensesToAdd.length})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dialog: Enviar Relatório */}
+        {showSubmitDialog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="px-6 py-4 border-b">
+                <h2 className="text-xl font-semibold text-gray-900">Enviar Relatório</h2>
+              </div>
+              <div className="px-6 py-4">
+                <p className="text-gray-700 mb-4">
+                  Tem certeza que deseja enviar este relatório para análise contábil?
+                </p>
+                <p className="text-sm text-gray-500 mb-4">
+                  O relatório será enviado para o setor financeiro e não poderá mais ser editado.
+                </p>
+                
+                {/* Opções de envio */}
+                <div className="space-y-3">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={sendEmailDetails}
+                      onChange={(e) => setSendEmailDetails(e.target.checked)}
+                      className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Enviar detalhes por email</span>
+                  </label>
+                  
+                  
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={sendPdfByEmail}
+                      onChange={(e) => {
+                        setSendPdfByEmail(e.target.checked)
+                        if (e.target.checked) {
+                          // Ao marcar PDF, fechar este diálogo e abrir diálogo de PDF
+                          setShowSubmitDialog(false)
+                          setShowPdfDialog(true)
+                        }
+                      }}
+                      className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Enviar relatório PDF por email</span>
+                  </label>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t flex gap-4">
+                <button
+                  onClick={() => {
+                    setShowSubmitDialog(false)
+                    setSendEmailDetails(false)
+                    setSendPdfByEmail(false)
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSubmitReport}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? 'Enviando...' : 'Enviar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Dialog: Configurar PDF */}
+        {showPdfDialog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="px-6 py-4 border-b">
+                <h2 className="text-xl font-semibold text-gray-900">Gerar Relatório em PDF para Email</h2>
+              </div>
+              <div className="px-6 py-4">
+                <p className="text-gray-700 mb-4">
+                  Configure as opções do PDF que será anexado ao email:
+                </p>
+                
+                <div className="space-y-3">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={includeExpenseDetails}
+                      onChange={(e) => {
+                        setIncludeExpenseDetails(e.target.checked)
+                        if (!e.target.checked) {
+                          setIncludeAttachments(false)
+                        }
+                      }}
+                      className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Incluir Detalhes das Despesas</span>
+                  </label>
+                  
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={includeAttachments}
+                      onChange={(e) => setIncludeAttachments(e.target.checked)}
+                      disabled={!includeExpenseDetails}
+                      className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <span className={`text-sm ${!includeExpenseDetails ? 'text-gray-400' : 'text-gray-700'}`}>
+                      Incluir anexo(s)
+                    </span>
+                  </label>
+                  
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={rdParaCliente}
+                      onChange={(e) => setRdParaCliente(e.target.checked)}
+                      className="mr-2 h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">RD para Cliente</span>
+                  </label>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t flex gap-4">
+                <button
+                  onClick={() => {
+                    setShowPdfDialog(false)
+                    setSendPdfByEmail(false)
+                    setIncludeExpenseDetails(true)
+                    setIncludeAttachments(false)
+                    setRdParaCliente(false)
+                    // Voltar ao diálogo de envio
+                    setShowSubmitDialog(true)
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleGeneratePdfAndSubmit}
+                  disabled={generatingPdf}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generatingPdf ? 'Gerando PDF...' : 'Gerar e Enviar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Modal de Processamento */}
+        <ProcessingModal
+          isOpen={showProcessingModal}
+          currentStep={processingStep}
+          progress={processingProgress}
+        />
       </div>
     </ProtectedRoute>
   )

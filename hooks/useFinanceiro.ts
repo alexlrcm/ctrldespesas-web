@@ -11,6 +11,7 @@ import {
   updateAdvance,
   getUserProfile,
 } from '@/lib/services/firestore'
+import { useUserRole } from './useUserRole'
 import {
   ExpenseReport,
   Advance,
@@ -28,6 +29,7 @@ function substringBefore(str: string, char: string): string {
 
 export function useFinanceiro() {
   const { user } = useAuthContext()
+  const { isAdmin, loading: roleLoading } = useUserRole()
   const [reports, setReports] = useState<ExpenseReport[]>([])
   const [advances, setAdvances] = useState<Advance[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,8 +37,8 @@ export function useFinanceiro() {
 
   // Carregar relatórios e adiantamentos
   useEffect(() => {
-    if (!user?.uid) {
-      console.log('⚠️ useFinanceiro: user.uid não disponível ainda')
+    if (!user?.uid || roleLoading) {
+      console.log('⚠️ useFinanceiro: user.uid ou role não disponíveis ainda')
       return
     }
 
@@ -47,10 +49,10 @@ export function useFinanceiro() {
         setLoading(true)
         setError(null)
 
-        console.log('📥 useFinanceiro: Iniciando busca de dados...')
+        console.log('📥 useFinanceiro: Iniciando busca de dados...', { isAdmin })
         const [reportsData, advancesData] = await Promise.all([
-          getFinanceiroReports(user.uid),
-          getFinanceiroAdvances(),
+          getFinanceiroReports(user.uid, isAdmin),
+          getFinanceiroAdvances(isAdmin),
         ])
 
         console.log('✅ useFinanceiro: Dados carregados:', {
@@ -69,7 +71,7 @@ export function useFinanceiro() {
     }
 
     loadData()
-  }, [user?.uid])
+  }, [user?.uid, roleLoading, isAdmin])
 
   // Buscar relatório completo com despesas
   const loadReportDetails = useCallback(async (
@@ -77,7 +79,7 @@ export function useFinanceiro() {
   ): Promise<ExpenseReport | null> => {
     try {
       console.log('🔄 loadReportDetails: Carregando relatório ID:', reportId)
-      
+
       const report = await getReportById(reportId)
       if (!report) {
         console.warn('⚠️ Relatório não encontrado:', reportId)
@@ -94,7 +96,7 @@ export function useFinanceiro() {
       // Buscar sempre da coleção para garantir dados atualizados e completos
       console.log('🔍 Buscando despesas da coleção (forçando atualização)...')
       const expensesFromCollection = await getExpensesByReportId(reportId)
-      
+
       console.log('💰 Despesas da coleção:', {
         quantidade: expensesFromCollection.length,
         ids: expensesFromCollection.map(e => e.id),
@@ -150,7 +152,7 @@ export function useFinanceiro() {
 
       // Recarregar lista de relatórios
       if (user?.uid) {
-        const updatedReports = await getFinanceiroReports(user.uid)
+        const updatedReports = await getFinanceiroReports(user.uid, isAdmin)
         setReports(updatedReports)
       }
     } catch (err: any) {
@@ -199,7 +201,7 @@ export function useFinanceiro() {
 
       // Recarregar lista de relatórios
       if (user?.uid) {
-        const updatedReports = await getFinanceiroReports(user.uid)
+        const updatedReports = await getFinanceiroReports(user.uid, isAdmin)
         setReports(updatedReports)
       }
     } catch (err: any) {
@@ -245,7 +247,7 @@ export function useFinanceiro() {
 
       // Recarregar lista de relatórios
       if (user?.uid) {
-        const updatedReports = await getFinanceiroReports(user.uid)
+        const updatedReports = await getFinanceiroReports(user.uid, isAdmin)
         setReports(updatedReports)
       }
     } catch (err: any) {
@@ -292,7 +294,7 @@ export function useFinanceiro() {
 
       // Recarregar lista de relatórios
       if (user?.uid) {
-        const updatedReports = await getFinanceiroReports(user.uid)
+        const updatedReports = await getFinanceiroReports(user.uid, isAdmin)
         setReports(updatedReports)
       }
     } catch (err: any) {
@@ -336,7 +338,7 @@ export function useFinanceiro() {
       await updateAdvance(advanceId, updatedAdvance)
 
       // Recarregar lista de adiantamentos
-      const updatedAdvances = await getFinanceiroAdvances()
+      const updatedAdvances = await getFinanceiroAdvances(isAdmin)
       setAdvances(updatedAdvances)
     } catch (err: any) {
       console.error('Erro ao marcar adiantamento como pago:', err)
@@ -374,8 +376,8 @@ export function useFinanceiro() {
       setLoading(true)
       try {
         const [reportsData, advancesData] = await Promise.all([
-          getFinanceiroReports(user.uid),
-          getFinanceiroAdvances(),
+          getFinanceiroReports(user.uid, isAdmin),
+          getFinanceiroAdvances(isAdmin),
         ])
         setReports(reportsData)
         setAdvances(advancesData)

@@ -120,6 +120,14 @@ export interface Company {
   responsible2Email?: string | null
 }
 
+export enum ProjectStatus {
+  ATIVO = 'ATIVO',
+  ORCAMENTO = 'ORCAMENTO',
+  ESPERA = 'ESPERA',
+  FATURAMENTO = 'FATURAMENTO',
+  FINALIZADO = 'FINALIZADO',
+}
+
 export interface Project {
   id: string
   name: string
@@ -130,6 +138,8 @@ export interface Project {
   date?: string | null
   responsibleName?: string | null
   documentationLink?: string | null
+  status?: ProjectStatus
+  observation?: string | null
 }
 
 export interface Expense {
